@@ -1,9 +1,15 @@
+from __future__ import print_function
 
 import re
 import sys
 import time
 import codecs
-import StringIO
+
+try:
+    import StringIO as sio
+except ImportError:
+    import io as sio
+
 from os import path
 import traceback
 
@@ -21,7 +27,6 @@ from sphinx.util import force_decode
 from sphinx.util.nodes import set_source_info
 from sphinx.util.compat import Directive
 from sphinx.util.console import bold
-from sphinx.util.pycompat import bytes
 from sphinx.ext.doctest import TestDirective, TestGroup, TestCode, \
         TestsetupDirective, TestcleanupDirective, DoctestDirective, \
         TestcodeDirective, TestoutputDirective
@@ -460,21 +465,23 @@ class SphinxDocTestRunner(object):
             # Run the example in the given context, and record
             # any exception that gets raised.  (But don't intercept
             # keyboard interrupts.)
+            got = ""
             try:
                 # Don't blink!  This is where the user's code gets run.
-                src = example.source.strip().encode('utf-8').replace('"""',r'\"""')
+                src = example.source.strip().replace('"""',r'\"""')
                 # restore ans cleared by the separator println
-                self.julia.stdin.write('ans=_ans;')
+                self.julia.stdin.write('ans=_ans;'.encode('utf-8'))
                 # run command
                 show = 'true' if src[-1] != ';' else 'false'
                 cmd = 'Base.eval_user_input(Base.parse_input_line(raw""" ' \
                     + src + ' """),' + show + ');'
-                self.julia.stdin.write(cmd)
+                self.julia.stdin.write(cmd.encode('utf-8'))
                 # save ans, and make sure no more output is generated
-                self.julia.stdin.write('_ans=ans; nothing\n')
+                self.julia.stdin.write('_ans=ans; nothing\n'.encode('utf-8'))
                 # read separator
                 sep = 'fjsdiij3oi123j42'
-                self.julia.stdin.write('println("' + sep + '")\n')
+                self.julia.stdin.write(('println("' + sep + '")\n').encode('utf-8'))
+                self.julia.stdin.flush()
                 got = []
                 line = ''
                 while line[:-1] != sep:
@@ -499,10 +506,9 @@ class SphinxDocTestRunner(object):
 
             # The example raised an exception:  check if it was expected.
             else:
-                exc_info = sys.exc_info()
-                exc_msg = traceback.format_exception_only(*exc_info[:2])[-1]
+                exc_msg = traceback.format_exception_only(*exception[:2])[-1]
                 if not quiet:
-                    got += _exception_traceback(exc_info)
+                    got += _exception_traceback(exception)
 
                 # If `example.exc_msg` is None, then we weren't expecting
                 # an exception.
@@ -532,7 +538,7 @@ class SphinxDocTestRunner(object):
             elif outcome is BOOM:
                 if not quiet:
                     self.report_unexpected_exception(out, test, example,
-                                                     exc_info)
+                                                     exception)
                 failures += 1
             else:
                 assert False, ("unknown outcome", outcome)
@@ -589,7 +595,7 @@ class SphinxDocTestRunner(object):
         summary is.  If the verbosity is not specified, then the
         DocTestRunner's verbosity is used.
         """
-        string_io = StringIO.StringIO()
+        string_io = sio.StringIO()
         old_stdout = sys.stdout
         sys.stdout = string_io
         try:
@@ -612,28 +618,28 @@ class SphinxDocTestRunner(object):
                     failed.append(x)
             if verbose:
                 if notests:
-                    print len(notests), "items had no tests:"
+                    print(len(notests), "items had no tests:")
                     notests.sort()
                     for thing in notests:
-                        print "   ", thing
+                        print("   ", thing)
                 if passed:
-                    print len(passed), "items passed all tests:"
+                    print(len(passed), "items passed all tests:")
                     passed.sort()
                     for thing, count in passed:
-                        print " %3d tests in %s" % (count, thing)
+                        print(" %3d tests in %s" % (count, thing))
             if failed:
-                print self.DIVIDER
-                print len(failed), "items had failures:"
+                print(self.DIVIDER)
+                print(len(failed), "items had failures:")
                 failed.sort()
                 for thing, (f, t) in failed:
-                    print " %3d of %3d in %s" % (f, t, thing)
+                    print(" %3d of %3d in %s" % (f, t, thing))
             if verbose:
-                print totalt, "tests in", len(self._name2ft), "items."
-                print totalt - totalf, "passed and", totalf, "failed."
+                print(totalt, "tests in", len(self._name2ft), "items.")
+                print(totalt - totalf, "passed and", totalf, "failed.")
             if totalf:
-                print "***Test Failed***", totalf, "failures."
+                print("***Test Failed***", totalf, "failures.")
             elif verbose:
-                print "Test passed."
+                print("Test passed.")
             res = TestResults(totalf, totalt)
         finally:
             sys.stdout = old_stdout
@@ -684,7 +690,11 @@ Results of doctest builder run on %s
         self.info(text, nonl=True)
         if self.app.quiet:
             self.warn(text)
-        if isinstance(text, bytes):
+        if sys.version_info >= (3,0,0):
+            isbytes = isinstance(text, bytes)
+        else:
+            isbytes = isinstance(text, str)
+        if isbytes:
             text = force_decode(text, None)
         self.outfile.write(text)
 
@@ -757,24 +767,24 @@ Doctest summary
                     groups[groupname] = TestGroup(groupname)
                 groups[groupname].add_code(code)
         for code in add_to_all_groups:
-            for group in groups.itervalues():
+            for group in groups.values():
                 group.add_code(code)
         if self.config.doctest_global_setup:
             code = TestCode(self.config.doctest_global_setup,
                             'testsetup', lineno=0)
-            for group in groups.itervalues():
+            for group in groups.values():
                 group.add_code(code, prepend=True)
         if self.config.doctest_global_cleanup:
             code = TestCode(self.config.doctest_global_cleanup,
                             'testcleanup', lineno=0)
-            for group in groups.itervalues():
+            for group in groups.values():
                 group.add_code(code)
         if not groups:
             return
 
         self._out('\nDocument: %s\n----------%s\n' %
                   (docname, '-'*len(docname)))
-        for group in groups.itervalues():
+        for group in groups.values():
             self.test_group(group, self.env.doc2path(docname, base=None))
         # Separately count results from setup code
         res_f, res_t = self.setup_runner.summarize(self._out, verbose=False)
@@ -796,8 +806,8 @@ Doctest summary
     def test_group(self, group, filename):
 
         j = Popen(["../julia"], stdin=PIPE, stdout=PIPE, stderr=STDOUT)
-        j.stdin.write("macro raw_mstr(s) s end\n")
-        j.stdin.write("_ans = nothing\n")
+        j.stdin.write("macro raw_str(s) s end\n".encode('utf-8'))
+        j.stdin.write("_ans = nothing\n".encode('utf-8'))
         self.setup_runner.julia = j
         self.test_runner.julia = j
         self.cleanup_runner.julia = j
